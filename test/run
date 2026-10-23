@@ -252,6 +252,16 @@ test_credentials() {
   check voter "$(q '[.data.votes[].by.me]')" '[false,false,false]'
 }
 
+# curl reads \ and " in a quoted config value as escapes
+test_credentials_quoted() {
+  login
+  export GERRIT_PASSWORD='p"\q'
+  route GET "a/$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check config "$(config)" 'user = "u:p\"\\q"'
+}
+
 test_credentials_error() {
   export GERRIT_USER=u
   export GERRIT_PASSWORD=$PASSWORD

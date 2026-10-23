@@ -44,13 +44,17 @@ HOST_RE='^https?://([^/:]+)'
 call() {
   local url=$ADDR/$2
   local reply
+  local user
   local args=(-fsS -X "$1")
   [ -n "$AUTH" ] && url=$ADDR/a/$2
   [ -n "$3" ] && args+=(-H 'Content-Type: application/json'
     --data-binary "$3")
   # The password goes to curl on stdin, not on its command line
   if [ "$AUTH" == env ]; then
-    reply=$(printf 'user = "%s:%s"\n' "$GERRIT_USER" "$GERRIT_PASSWORD" |
+    # curl's config reads \ and " in a quoted value as escapes
+    user=$(printf '%s:%s' "$GERRIT_USER" "$GERRIT_PASSWORD" |
+      sed 's/[\\"]/\\&/g')
+    reply=$(printf 'user = "%s"\n' "$user" |
       curl "${args[@]}" -K - "$url") || die "Cannot $1 $url"
   elif [ "$AUTH" == netrc ]; then
     reply=$(curl "${args[@]}" --netrc "$url") || die "Cannot $1 $url"
