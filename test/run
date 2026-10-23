@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+#
+# test/run: tests of memex-gerrit against a fake Gerrit.
+#
+# test/bin comes first in PATH: its curl answers from test/fixtures and
+# logs every request, so no test reaches a network. HOME is a scratch
+# directory, so the user's ~/.netrc stays unread.
+#
+
+set -e
+
+CURDIR=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+ROOT=$(dirname "$CURDIR")
+ADAPTER=$ROOT/memex-gerrit
+ADDR=https://review.example.org
+DIR=$(mktemp -d)
+FAILED=0
+# A password the tests look for in curl's arguments
+PASSWORD=s3cret
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat << EOF
+Usage: $0 [TEST...]
+
+Runs the given tests, or all of them:
+$(declare -F | cut -d' ' -f3 | grep '^test_' | sed 's/^/  /')
+EOF
+}
+
+cleanup() {
+  rm -rf "$DIR"
+}
+
+# Answer METHOD on PATH of ADDR with FIXTURE, - for none, and STATUS
+route() {
+  printf '%s\t%s\t%s\t%s\n' "$1" "$ADDR/$2" "$3" "${4:-200}" \
+    >> "$FAKE_ROUTES"
+}
+
+# Use credentials from the environment
+login() {
+  export GERRIT_USER=u
+  export GERRIT_PASSWORD=$PASSWORD
+  route GET a/accounts/self account-self.json
+}
+
+# Run the adapter on ADDR with ARGS in the working copy; sets OUT, ERR
+# and STATUS
+call() {
+  OUT=$(cd "$TEST_DIR/work" && "$ADAPTER" "$ADDR" "$@" 2> "$TEST_DIR/err") &&
+    STATUS=0 || STATUS=$?
+  ERR=$(< "$TEST_DIR/err")
+}
+
+# Apply a jq FILTER to OUT, one record at a time, or to all with -s
+q() {
+  jq -c "$@" <<< "$OUT"
+}
+
+# Apply a jq FILTER to the logged requests, as an array
+log() {
+  jq -sc "$1" "$FAKE_LOG"
+}
+
+# The logged requests as METHOD URL, one per line
+requests() {
+  jq -r 'select(.method) | "\(.method) \(.url)"' "$FAKE_LOG"
+}
+
+# What curl read from stdin with -K - for the first request
+config() {
+  jq -sr '.[0].config' "$FAKE_LOG"
+}
+
+# JSON in one line, as jq -c prints it
+json() {
+  jq -c . <<< "$1"
+}
+
+check() {
+  [ "$2" == "$3" ] && return
+  echo "# $TEST: $1: expected '$3', got '$2'"
+  FAILED=$((FAILED + 1))
+}
+
+check_has() {
+  [[ "$2" == *"$3"* ]] && return
+  echo "# $TEST: $1: '$2' lacks '$3'"
+  FAILED=$((FAILED + 1))
+}
+
+test_capabilities() {
+  call discussion capabilities
+  check status "$STATUS" 0
+  check caps "$(q .)" \
+    '{"exact":true,"resolved":true,"drafts":true,"series":true,"votes":true}'
+}
+
+test_not_discussion() {
+  call tracker capabilities
+  check tracker "$STATUS" 2
+  call ci runs 1234
+  check ci "$STATUS" 2
+  check requests "$(requests)" ""
+}
+
+test_bad_usage() {
+  call discussion frobnicate 1
+  check command "$STATUS" 1
+  call discussion change
+  check "no change" "$STATUS" 1
+  OUT=$("$ADAPTER" review.example.org discussion change 1 2>&1) &&
+    STATUS=0 || STATUS=$?
+  check addr "$STATUS" 1
+  check_has message "$OUT" "Not an http(s) URL"
+}
+
+CHANGE_PATH="changes/68560?o=ALL_REVISIONS&o=ALL_COMMITS"
+CHANGE_PATH+="&o=DETAILED_ACCOUNTS&o=DETAILED_LABELS"
+
+test_change() {
+  route GET "$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check records "$(q -s length)" 1
+  check envelope "$(q '[.id, .source, .role, .kind, .notes]')" \
+    '["68560","https://review.example.org","discussion","change",{}]'
+  check basis "$(q -r .basis)" \
+    "3333333333333333333333333333333333333333 2026-09-06 22:10:04.000000000"
+  check links "$(q .links)" "$(json '[["change", "68560"],
+    ["change-id", "Ie4ebe32c2f0290e055d88530174d2a557c09ad3a"]]')"
+  check title "$(q .data.title)" \
+    '"LU-930 doc: Fix typos in OSD API documentation"'
+  check url "$(q .data.url)" \
+    '"https://review.example.org/c/fs/lustre-release/+/68560"'
+  check status "$(q .data.status)" '"open"'
+  check owner "$(q .data.owner)" "$(json '{"name": "Alice Author",
+    "email": "alice@example.org", "username": "alice", "me": false}')"
+  check current "$(q .data.current)" '"3"'
+  check_has message "$(q -r .data.message)" "Change-Id: Ie4ebe32c"
+  check requests "$(requests)" "GET $ADDR/$CHANGE_PATH"
+}
+
+# Revisions come oldest first, whatever order Gerrit's map has
+test_change_revisions() {
+  route GET "$CHANGE_PATH" change.json
+  call discussion change 68560
+  check ids "$(q '[.data.revisions[].id]')" '["1","2","3"]'
+  check second "$(q '.data.revisions[1]')" "$(json '{"id": "2",
+    "commit": "2222222222222222222222222222222222222222",
+    "parents": ["8888888888888888888888888888888888888888"],
+    "fetch": "refs/changes/60/68560/2",
+    "uploader": {"name": "Dan Gatekeeper", "email": "dan@example.org",
+      "username": "dan", "me": false},
+    "created": "2026-09-01T18:02:04Z"}')"
+}
+
+# Only votes other than 0, a missing value being 0
+test_change_votes() {
+  route GET "$CHANGE_PATH" change.json
+  call discussion change 68560
+  check votes "$(q '[.data.votes[] | [.label, .value, .by.username]]')" \
+    '[["Verified",1,"ci"],["Code-Review",2,"bob"],["Code-Review",-1,"dan"]]'
+  check "no email" "$(q '.data.votes[0].by.email')" null
+}
+
+test_change_http_error() {
+  route GET "$CHANGE_PATH" - 404
+  call discussion change 68560
+  check status "$STATUS" 1
+  check out "$OUT" ""
+  check_has stderr "$ERR" "Cannot GET $ADDR/$CHANGE_PATH"
+}
+
+test_locate() {
+  route GET "changes/?q=commit:3333333" locate.json
+  route GET "$CHANGE_PATH" change.json
+  call discussion locate 3333333
+  check status "$STATUS" 0
+  check id "$(q .id)" '"68560"'
+}
+
+test_locate_none() {
+  route GET "changes/?q=commit:abcdef0" locate-none.json
+  call discussion locate abcdef0
+  check status "$STATUS" 1
+  check_has stderr "$ERR" "No change has commit abcdef0"
+}
+
+RELATED_PATH=changes/68560/revisions/current/related
+
+# Gerrit lists related changes tip first; a series goes base to tip
+test_series() {
+  route GET "$RELATED_PATH" related.json
+  route GET "${CHANGE_PATH/68560/68559}" change-68559.json
+  route GET "$CHANGE_PATH" change.json
+  route GET "${CHANGE_PATH/68560/68561}" change-68561.json
+  call discussion series 68560
+  check status "$STATUS" 0
+  check ids "$(q -s '[.[].id]')" '["68559","68560","68561"]'
+  check statuses "$(q -s '[.[].data.status]')" \
+    '["merged","open","abandoned"]'
+  check fetch "$(q -s '.[0].data.revisions[0].fetch')" \
+    '"refs/changes/59/68559/1"'
+}
+
+test_series_alone() {
+  route GET "$RELATED_PATH" related-none.json
+  route GET "$CHANGE_PATH" change.json
+  call discussion series 68560
+  check status "$STATUS" 0
+  check ids "$(q -s '[.[].id]')" '["68560"]'
+}
+
+test_netrc() {
+  printf 'machine review.example.org login u password %s\n' "$PASSWORD" \
+    > "$HOME/.netrc"
+  route GET a/accounts/self account-self.json
+  route GET "a/$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check auth "$(log '[.[].auth] | unique')" '["netrc"]'
+  check owner "$(q .data.owner.me)" true
+}
+
+test_netrc_other_host() {
+  printf 'machine review.example.com login u password %s\n' "$PASSWORD" \
+    > "$HOME/.netrc"
+  route GET "$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check auth "$(log '[.[].auth] | unique')" '["none"]'
+}
+
+# The password goes on stdin; requests go to /a/
+test_credentials() {
+  login
+  route GET "a/$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check requests "$(requests)" \
+    "GET $ADDR/a/accounts/self"$'\n'"GET $ADDR/a/$CHANGE_PATH"
+  check auth "$(log '[.[].auth] | unique')" '["stdin"]'
+  check config "$(config)" "user = \"u:$PASSWORD\""
+  check args "$(log "[.[].args[] | select(contains(\"$PASSWORD\"))]")" '[]'
+  check owner "$(q .data.owner.me)" true
+  check voter "$(q '[.data.votes[].by.me]')" '[false,false,false]'
+}
+
+test_credentials_error() {
+  export GERRIT_USER=u
+  export GERRIT_PASSWORD=$PASSWORD
+  route GET a/accounts/self - 401
+  call discussion change 68560
+  check status "$STATUS" 1
+  check_has stderr "$ERR" "Cannot GET $ADDR/a/accounts/self"
+}
+
+run() {
+  local failed=$FAILED
+  local unexpected
+  TEST=$1
+  TEST_DIR=$DIR/$1
+  mkdir -p "$TEST_DIR/work" "$TEST_DIR/home"
+  export HOME=$TEST_DIR/home
+  export FAKE_LOG=$TEST_DIR/log
+  export FAKE_ROUTES=$TEST_DIR/routes
+  : > "$FAKE_LOG"
+  : > "$FAKE_ROUTES"
+  "$1" < /dev/null
+  unexpected=$(jq -r 'select(.unexpected) | "\(.method) \(.url)"' "$FAKE_LOG")
+  check "unexpected requests" "$unexpected" ""
+  unset GERRIT_USER GERRIT_PASSWORD
+  if [ $FAILED -eq $failed ]; then
+    echo "ok $1"
+  else
+    echo "not ok $1"
+  fi
+}
+
+if [ "$1" == "-h" -o "$1" == "--help" ]; then
+  usage
+  exit 0
+fi
+command -v jq > /dev/null || die "jq is not installed"
+trap cleanup EXIT
+export FAKE_FIXTURES=$CURDIR/fixtures
+export PATH=$CURDIR/bin:$PATH
+unset GERRIT_USER GERRIT_PASSWORD
+# The working copy is no repository unless a test makes it one
+export GIT_CEILING_DIRECTORIES=$DIR
+
+TESTS=("$@")
+[ $# -gt 0 ] || TESTS=($(declare -F | cut -d' ' -f3 | grep '^test_'))
+for test in "${TESTS[@]}"; do
+  declare -F "$test" > /dev/null || die "No such test: $test"
+  run "$test"
+done
+[ $FAILED -eq 0 ] || die "$FAILED failed"

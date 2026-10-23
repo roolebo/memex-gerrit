@@ -1,0 +1,26 @@
+{
+  "id": "fs%2Flustre-release~68561",
+  "project": "fs/lustre-release",
+  "branch": "master",
+  "change_id": "Ib000000000000000000000000000000000068561",
+  "subject": "LU-930 doc: Change 68561",
+  "status": "ABANDONED",
+  "updated": "2026-09-05 08:00:00.000000000",
+  "_number": 68561,
+  "owner": {"_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"},
+  "labels": {},
+  "current_revision": "4444444444444444444444444444444444444444",
+  "revisions": {
+    "4444444444444444444444444444444444444444": {
+      "_number": 1,
+      "created": "2026-09-05 08:00:00.000000000",
+      "uploader": {"_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"},
+      "ref": "refs/changes/61/68561/1",
+      "commit": {
+        "parents": [{"commit": "9999999999999999999999999999999999999999", "subject": "Parent"}],
+        "subject": "LU-930 doc: Change 68561",
+        "message": "LU-930 doc: Change 68561\n\nChange-Id: Ib000000000000000000000000000000000068561\n"
+      }
+    }
+  }
+}

@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# test/bin/curl: a fake curl for test/run. Answers a request from the
+# routes in FAKE_ROUTES and logs it to FAKE_LOG. Never reaches a network.
+#
+# FAKE_ROUTES has one route per line, fields separated by tabs: METHOD,
+# URL, FIXTURE, STATUS and MATCH. FIXTURE is a file in FAKE_FIXTURES, or
+# - for an empty reply. MATCH is text the body must contain, or empty.
+# The first route that matches answers, with Gerrit's )]}' line first.
+#
+# FAKE_LOG gets one JSON object per request: method, url, body, auth
+# (stdin for -K -, netrc for --netrc, else none), config (what -K - read
+# from stdin), args, and unexpected when no route matched.
+#
+
+set -e
+
+METHOD=
+URL=
+BODY=
+AUTH=none
+CONFIG=
+ARGS=("$@")
+
+while [ $# -gt 0 ]; do
+  if [ "$1" == -X ]; then
+    METHOD=$2
+    shift
+  elif [ "$1" == -H ]; then
+    shift
+  elif [ "$1" == --data-binary ]; then
+    BODY=$2
+    shift
+  elif [ "$1" == -K ]; then
+    [ "$2" == - ] && CONFIG=$(cat)
+    AUTH=stdin
+    shift
+  elif [ "$1" == --netrc ]; then
+    AUTH=netrc
+  elif [[ "$1" != -* ]]; then
+    URL=$1
+  fi
+  shift
+done
+# curl posts a body unless -X says otherwise
+if [ -z "$METHOD" ]; then
+  METHOD=GET
+  [ -z "$BODY" ] || METHOD=POST
+fi
+
+# curl's arguments as a JSON array
+args() {
+  printf '%s\0' "${ARGS[@]}" | jq -Rsc 'split("\u0000")[:-1]'
+}
+
+log() {
+  jq -nc --arg method "$METHOD" --arg url "$URL" --arg body "$BODY" \
+    --arg auth "$AUTH" --arg config "$CONFIG" --argjson args "$(args)" \
+    --argjson unexpected "$1" '{method: $method, url: $url, body: $body,
+      auth: $auth, config: $config, args: $args}
+      + if $unexpected then {unexpected: true} else {} end' >> "$FAKE_LOG"
+}
+
+while IFS=$'\t' read -r method url fixture status match; do
+  [ "$method" == "$METHOD" -a "$url" == "$URL" ] || continue
+  [ -z "$match" ] || [[ "$BODY" == *"$match"* ]] || continue
+  log false
+  if [ "$status" -ge 400 ]; then
+    echo "curl: (22) The requested URL returned error: $status" >&2
+    exit 22
+  fi
+  [ "$fixture" == - ] && exit 0
+  echo ")]}'"
+  cat "$FAKE_FIXTURES/$fixture"
+  exit 0
+done < "$FAKE_ROUTES"
+
+log true
+echo "fake curl: no route for $METHOD $URL" >&2
+exit 99

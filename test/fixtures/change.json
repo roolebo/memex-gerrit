@@ -1,0 +1,69 @@
+{
+  "id": "fs%2Flustre-release~68560",
+  "project": "fs/lustre-release",
+  "branch": "master",
+  "change_id": "Ie4ebe32c2f0290e055d88530174d2a557c09ad3a",
+  "subject": "LU-930 doc: Fix typos in OSD API documentation",
+  "status": "NEW",
+  "created": "2026-09-01 14:33:39.000000000",
+  "updated": "2026-09-06 22:10:04.000000000",
+  "_number": 68560,
+  "owner": {"_account_id": 1001, "name": "Alice Author", "email": "alice@example.org", "username": "alice"},
+  "labels": {
+    "Verified": {
+      "all": [
+        {"value": 1, "date": "2026-09-03 15:00:00.000000000", "_account_id": 1003, "name": "CI Bot", "username": "ci"},
+        {"value": 0, "_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"}
+      ],
+      "values": {"-1": "Fails", " 0": "No score", "+1": "Verified"}
+    },
+    "Code-Review": {
+      "all": [
+        {"value": 2, "date": "2026-09-04 09:00:00.000000000", "_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"},
+        {"value": -1, "date": "2026-09-04 10:00:00.000000000", "_account_id": 1004, "name": "Dan Gatekeeper", "email": "dan@example.org", "username": "dan"},
+        {"_account_id": 1001, "name": "Alice Author", "email": "alice@example.org", "username": "alice"}
+      ],
+      "values": {"-2": "Do not submit", "-1": "No", " 0": "No score", "+1": "Yes", "+2": "Approved"}
+    }
+  },
+  "current_revision": "3333333333333333333333333333333333333333",
+  "revisions": {
+    "3333333333333333333333333333333333333333": {
+      "kind": "REWORK",
+      "_number": 3,
+      "created": "2026-09-03 13:51:28.000000000",
+      "uploader": {"_account_id": 1001, "name": "Alice Author", "email": "alice@example.org", "username": "alice"},
+      "ref": "refs/changes/60/68560/3",
+      "commit": {
+        "parents": [{"commit": "9999999999999999999999999999999999999999", "subject": "LU-17000 llite: fix memory safety in ll_rmfid()"}],
+        "author": {"name": "Alice Author", "email": "alice@example.org", "date": "2026-09-01 11:11:07.000000000", "tz": 0},
+        "subject": "LU-930 doc: Fix typos in OSD API documentation",
+        "message": "LU-930 doc: Fix typos in OSD API documentation\n\nContext tags inside lu_device_type refer to a member that is not\nin the code base.\n\nChange-Id: Ie4ebe32c2f0290e055d88530174d2a557c09ad3a\nSigned-off-by: Alice Author <alice@example.org>\n"
+      }
+    },
+    "1111111111111111111111111111111111111111": {
+      "kind": "REWORK",
+      "_number": 1,
+      "created": "2026-09-01 14:33:39.000000000",
+      "uploader": {"_account_id": 1001, "name": "Alice Author", "email": "alice@example.org", "username": "alice"},
+      "ref": "refs/changes/60/68560/1",
+      "commit": {
+        "parents": [{"commit": "8888888888888888888888888888888888888888", "subject": "LU-17000 ofd: do not use a list iterator after the loop"}],
+        "subject": "LU-930 doc: Fix typos in OSD API documentation",
+        "message": "LU-930 doc: Fix typos in OSD API documentation\n"
+      }
+    },
+    "2222222222222222222222222222222222222222": {
+      "kind": "TRIVIAL_REBASE",
+      "_number": 2,
+      "created": "2026-09-01 18:02:04.000000000",
+      "uploader": {"_account_id": 1004, "name": "Dan Gatekeeper", "email": "dan@example.org", "username": "dan"},
+      "ref": "refs/changes/60/68560/2",
+      "commit": {
+        "parents": [{"commit": "8888888888888888888888888888888888888888", "subject": "LU-17000 ofd: do not use a list iterator after the loop"}],
+        "subject": "LU-930 doc: Fix typos in OSD API documentation",
+        "message": "LU-930 doc: Fix typos in OSD API documentation\n"
+      }
+    }
+  }
+}

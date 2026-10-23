@@ -68,5 +68,10 @@ The ANCHOR comes from the comment's `path`, `line`, `range` and `side`:
 - Comments on a merge commit's second parent: map to `base` and drop
   `parent`?
 
+## Tests
+
+`test/run [TEST...]` runs the tests against a fake Gerrit; they need jq
+and git, and no network.
+
 [memex]: https://github.com/roolebo/memex
 [discussion.md]: https://github.com/roolebo/memex/blob/main/discussion.md
