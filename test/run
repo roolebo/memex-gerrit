@@ -271,6 +271,15 @@ test_credentials_error() {
   check_has stderr "$ERR" "Cannot GET $ADDR/a/accounts/self"
 }
 
+# capabilities is the same for every server: it sends no request
+test_capabilities_offline() {
+  export GERRIT_USER=u
+  export GERRIT_PASSWORD=$PASSWORD
+  call discussion capabilities
+  check status "$STATUS" 0
+  check requests "$(requests)" ""
+}
+
 # Make the working copy a repository with a REMOTE
 remote() {
   git -C "$TEST_DIR/work" init -q

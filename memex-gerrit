@@ -334,20 +334,20 @@ if [ -n "$GERRIT_USER" -a -n "$GERRIT_PASSWORD" ]; then
 elif grep -qs "machine $HOST\b" ~/.netrc; then
   AUTH=netrc
 fi
-SELF=$(self)
 
 case "$2" in
   capabilities)
     echo '{"exact": true, "resolved": true, "drafts": true,' \
       '"series": true, "votes": true}'
     ;;
-  locate | change | series | threads)
+  locate | change | series | threads | drafts | draft)
     [ $# -eq 3 ] || die "$(usage)"
+    SELF=$(self)
     "$2" "$3"
     ;;
-  drafts | draft | publish)
+  publish)
     [ $# -eq 3 ] || die "$(usage)"
-    "$2" "$3"
+    publish "$3"
     ;;
   discard)
     [ $# -eq 4 ] || die "$(usage)"
