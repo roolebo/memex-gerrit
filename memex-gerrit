@@ -7,7 +7,8 @@
 #
 # README.md specifies the mapping. Credentials come from GERRIT_USER and
 # GERRIT_PASSWORD (the HTTP password), e.g. set by withkeys, or else from
-# ~/.netrc for ADDR's host; without them only reading works. Never
+# ~/.netrc for ADDR's host; without them only reading works, and the user
+# is found through the working copy's ssh:// remote on that host. Never
 # prompts. Drafts and publishing are not implemented yet and exit 2.
 #
 
@@ -73,15 +74,36 @@ get() {
   tail -n +2 <<< "$reply"
 }
 
-# The account id of the user, or null without credentials
+# Prints ssh://[USER@]HOST[:PORT] of the working copy's first ssh://
+# remote on HOST
+ssh_remote() {
+  local url
+  for url in $(git remote -v 2> /dev/null | cut -f2 | cut -d' ' -f1); do
+    if [[ "$url" =~ ^ssh://([^@/]*@)?$HOST(:[0-9]+)?/ ]]; then
+      echo "${BASH_REMATCH[0]%/}"
+      return
+    fi
+  done
+}
+
+# The user as JSON: the account id with credentials, else the username
+# the working copy's SSH remote logs in as, else null
 self() {
   local account
+  local remote
   if [ -n "$AUTH" ]; then
     account=$(get accounts/self) || exit 1
     jq '._account_id' <<< "$account"
-  else
-    echo null
+    return
   fi
+  remote=$(ssh_remote)
+  if [ -z "$remote" ]; then
+    echo null
+    return
+  fi
+  account=$(ssh -T -o BatchMode=yes "$remote" gerrit query \
+    --format=JSON limit:1 owner:self 2> /dev/null) || true
+  jq -s '[.[].owner.username // empty][0] // null' <<< "$account"
 }
 
 # jq definitions shared by the commands
@@ -91,7 +113,8 @@ def person: {
   name: (.name // .username // ""),
   email: (.email // null),
   username: (.username // null),
-  me: (._account_id == $self)
+  me: (if ($self | type) == "string" then .username == $self
+    else ._account_id == $self end)
 };
 def record($kind; $id; $basis; $links; $data): {
   id: $id, source: $addr, role: "discussion", kind: $kind,
@@ -209,9 +232,10 @@ fi
 
 ADDR=${1%/}
 [[ "$ADDR" =~ $HOST_RE ]] || die "Not an http(s) URL: $1"
+HOST=${BASH_REMATCH[1]}
 if [ -n "$GERRIT_USER" -a -n "$GERRIT_PASSWORD" ]; then
   AUTH=env
-elif grep -qs "machine ${BASH_REMATCH[1]}\b" ~/.netrc; then
+elif grep -qs "machine $HOST\b" ~/.netrc; then
   AUTH=netrc
 fi
 SELF=$(self)

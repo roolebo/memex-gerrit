@@ -9,7 +9,9 @@ ADDR is the base URL of the server.
 
 The adapter uses the REST API. With credentials, from GERRIT_USER and
 GERRIT_PASSWORD (the HTTP password) or else from `~/.netrc` for ADDR's
-host, it calls the `/a/` endpoints; without them, only reading works.
+host, it calls the `/a/` endpoints; without them, only reading works,
+and PERSON `me` is the account the working copy's `ssh://` remote on
+ADDR's host logs in as.
 It strips `)]}'` from every reply.
 
 `detect REPO` prints `discussion` and ADDR, `https://` and the host of
