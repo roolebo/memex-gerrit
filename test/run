@@ -249,8 +249,7 @@ test_threads_anchors() {
   check change "$(thread c1 | jq -c .data.anchor)" '{"on":"change"}'
   check message "$(thread b1 | jq -c .data.anchor)" '{"on":"message"}'
   check "message lines" "$(thread a1 | jq -c .data.anchor)" "$(json '{
-    "on": "lines", "path": "/COMMIT_MSG", "side": "revision",
-    "start": 9, "end": 9}')"
+    "on": "message", "start": 9, "end": 9}')"
   check file "$(thread e1 | jq -c .data.anchor)" \
     '{"on":"file","path":"src/b.c"}'
   check line "$(thread f2 | jq -c .data.anchor)" \

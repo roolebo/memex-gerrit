@@ -125,17 +125,18 @@ def record($kind; $id; $basis; $links; $data): {
   id: $id, source: $addr, role: "discussion", kind: $kind,
   basis: $basis, links: $links, data: $data, notes: {}
 };
+def span:
+  if .range then {start: .range.start_line, end: .range.end_line,
+      start_col: (.range.start_character + 1),
+      end_col: (.range.end_character + 1)}
+    elif .line then {start: .line, end: .line}
+    else {} end;
 def anchor:
   (if .side == "PARENT" then "base" else "revision" end) as $side
   | if .path == "/PATCHSET_LEVEL" then {on: "change"}
-    elif .path == "/COMMIT_MSG" and .line == null and .range == null
-      then {on: "message"}
-    elif .range then {on: "lines", path: .path, side: $side,
-      start: .range.start_line, end: .range.end_line,
-      start_col: (.range.start_character + 1),
-      end_col: (.range.end_character + 1)}
-    elif .line then {on: "lines", path: .path, side: $side,
-      start: .line, end: .line}
+    elif .path == "/COMMIT_MSG" then {on: "message"} + span
+    elif .range or .line then {on: "lines", path: .path, side: $side}
+      + span
     else {on: "file", path: .path} end;
 def comment($draft): {
   id: .id,
@@ -271,12 +272,13 @@ draft() {
         in_reply_to: .id, patch_set, unresolved}
       else .anchor as $a
         | if $a.on == "change" then {path: "/PATCHSET_LEVEL"}
-          elif $a.on == "message" then {path: "/COMMIT_MSG"}
           elif $a.on == "file" then {path: $a.path}
-          elif $a.start_col then {path: $a.path, line: $a.end, range: {
-            start_line: $a.start, start_character: ($a.start_col - 1),
-            end_line: $a.end, end_character: ($a.end_col - 1)}}
-          else {path: $a.path, line: $a.end} end
+          else {path: (if $a.on == "message" then "/COMMIT_MSG"
+              else $a.path end)}
+            + if $a.start_col then {line: $a.end, range: {
+                start_line: $a.start, start_character: ($a.start_col - 1),
+                end_line: $a.end, end_character: ($a.end_col - 1)}}
+              elif $a.end then {line: $a.end} else {} end end
         + (if $a.side == "base" then {side: "PARENT"} else {} end)
         + {patch_set: (.revision | tonumber), unresolved: true} end)
     + {message: .text}

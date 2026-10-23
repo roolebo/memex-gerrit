@@ -54,7 +54,7 @@ A thread is a comment and the comments that reply to it, followed through
 The ANCHOR comes from the comment's `path`, `line`, `range` and `side`:
 
 - path `/PATCHSET_LEVEL`: `change`
-- path `/COMMIT_MSG`: `message`, or `lines` in it
+- path `/COMMIT_MSG`: `message`, with `start` and `end` when on lines
 - no `line` and no `range`: `file`
 - `line` only: `lines` from `line` to `line`
 - `range`: `lines` from `start_line` to `end_line`, `start_col` is
