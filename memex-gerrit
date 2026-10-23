@@ -128,7 +128,8 @@ def record($kind; $id; $basis; $links; $data): {
 def anchor:
   (if .side == "PARENT" then "base" else "revision" end) as $side
   | if .path == "/PATCHSET_LEVEL" then {on: "change"}
-    elif .path == "/COMMIT_MSG" then {on: "message"}
+    elif .path == "/COMMIT_MSG" and .line == null and .range == null
+      then {on: "message"}
     elif .range then {on: "lines", path: .path, side: $side,
       start: .range.start_line, end: .range.end_line,
       start_col: (.range.start_character + 1),
