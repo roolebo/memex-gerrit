@@ -50,7 +50,7 @@ detect() {
       fi
     done
   fi
-  [ -n "$host" ] || exit 1
+  [ -n "$host" ] || return 0
   echo "discussion https://$host"
 }
 
