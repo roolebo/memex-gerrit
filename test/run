@@ -217,6 +217,63 @@ test_series_alone() {
   check ids "$(q -s '[.[].id]')" '["68560"]'
 }
 
+# The thread of comment ID in OUT
+thread() {
+  q "select(.id == \"$1\")"
+}
+
+test_threads() {
+  route GET changes/68560/comments comments.json
+  call discussion threads 68560
+  check status "$STATUS" 0
+  check ids "$(q -s '[.[].id] | sort')" '["a1","b1","c1","d1","e1","f2"]'
+  check envelope "$(thread c1 | jq -c '[.source, .role, .kind, .links]')" \
+    "$(json '["https://review.example.org", "discussion", "thread",
+      [["change", "68560"]]]')"
+  check comment "$(thread c1 | jq -c '.data.comments[0]')" "$(json '{
+    "id": "c1",
+    "author": {"name": "Dan Gatekeeper", "email": "dan@example.org",
+      "username": "dan", "me": false},
+    "revision": "2", "text": "Looks good otherwise.",
+    "created": "2026-09-02T12:00:00Z", "reply_to": null, "draft": false}')"
+}
+
+test_threads_anchors() {
+  route GET changes/68560/comments comments.json
+  call discussion threads 68560
+  check change "$(thread c1 | jq -c .data.anchor)" '{"on":"change"}'
+  check message "$(thread b1 | jq -c .data.anchor)" '{"on":"message"}'
+  check file "$(thread e1 | jq -c .data.anchor)" \
+    '{"on":"file","path":"src/b.c"}'
+  check line "$(thread f2 | jq -c .data.anchor)" \
+    '{"on":"lines","path":"src/b.c","side":"revision","start":7,"end":7}'
+  check range "$(thread d1 | jq -c .data.anchor)" "$(json '{
+    "on": "lines", "path": "src/a.c", "side": "base", "start": 10,
+    "end": 12, "start_col": 5, "end_col": 9}')"
+}
+
+# Replies join their root however Gerrit orders them, oldest first
+test_threads_replies() {
+  route GET changes/68560/comments comments.json
+  call discussion threads 68560
+  check order "$(thread d1 | jq -c '[.data.comments[] | [.id, .reply_to]]')" \
+    '[["d1",null],["d2","d1"],["d3","d2"]]'
+  check revision "$(thread d1 | jq -c .data.revision)" '"2"'
+  check basis "$(thread d1 | jq -c .basis)" '"2:d3"'
+  check orphan "$(thread f2 | jq -c '[.data.comments[] | .reply_to]')" \
+    '["gone"]'
+}
+
+# The last comment says whether a thread is resolved
+test_threads_resolved() {
+  route GET changes/68560/comments comments.json
+  call discussion threads 68560
+  check "reply resolves" "$(thread a1 | jq .data.resolved)" true
+  check "reply reopens" "$(thread d1 | jq .data.resolved)" false
+  check unresolved "$(thread b1 | jq .data.resolved)" false
+  check resolved "$(thread c1 | jq .data.resolved)" true
+}
+
 test_netrc() {
   printf 'machine review.example.org login u password %s\n' "$PASSWORD" \
     > "$HOME/.netrc"

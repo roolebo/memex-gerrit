@@ -1,0 +1,19 @@
+{
+  "/COMMIT_MSG": [
+    {"author": {"_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"}, "change_message_id": "m1", "unresolved": true, "patch_set": 1, "id": "a1", "line": 9, "updated": "2026-09-01 15:09:59.000000000", "message": "(typo) refers, not refer.", "commit_id": "1111111111111111111111111111111111111111"},
+    {"author": {"_account_id": 1001, "name": "Alice Author", "email": "alice@example.org", "username": "alice"}, "change_message_id": "m2", "unresolved": false, "patch_set": 1, "id": "a2", "line": 9, "in_reply_to": "a1", "updated": "2026-09-01 18:01:37.000000000", "message": "Done", "commit_id": "1111111111111111111111111111111111111111"},
+    {"author": {"_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"}, "change_message_id": "m3", "unresolved": true, "patch_set": 2, "id": "b1", "updated": "2026-09-02 09:00:00.000000000", "message": "Wrap the message at 70 columns.", "commit_id": "2222222222222222222222222222222222222222"}
+  ],
+  "/PATCHSET_LEVEL": [
+    {"author": {"_account_id": 1004, "name": "Dan Gatekeeper", "email": "dan@example.org", "username": "dan"}, "change_message_id": "m4", "unresolved": false, "patch_set": 2, "id": "c1", "updated": "2026-09-02 12:00:00.000000000", "message": "Looks good otherwise.", "commit_id": "2222222222222222222222222222222222222222"}
+  ],
+  "src/a.c": [
+    {"author": {"_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"}, "change_message_id": "m7", "unresolved": true, "patch_set": 2, "id": "d3", "line": 12, "range": {"start_line": 10, "start_character": 4, "end_line": 12, "end_character": 8}, "side": "PARENT", "in_reply_to": "d2", "updated": "2026-09-04 10:00:00.000000000", "message": "Still leaks.", "commit_id": "2222222222222222222222222222222222222222"},
+    {"author": {"_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"}, "change_message_id": "m5", "unresolved": true, "patch_set": 2, "id": "d1", "line": 12, "range": {"start_line": 10, "start_character": 4, "end_line": 12, "end_character": 8}, "side": "PARENT", "updated": "2026-09-02 10:00:00.000000000", "message": "This leaks the lock.", "commit_id": "2222222222222222222222222222222222222222"},
+    {"author": {"_account_id": 1001, "name": "Alice Author", "email": "alice@example.org", "username": "alice"}, "change_message_id": "m6", "unresolved": false, "patch_set": 2, "id": "d2", "line": 12, "range": {"start_line": 10, "start_character": 4, "end_line": 12, "end_character": 8}, "side": "PARENT", "in_reply_to": "d1", "updated": "2026-09-03 10:00:00.000000000", "message": "Fixed", "commit_id": "2222222222222222222222222222222222222222"}
+  ],
+  "src/b.c": [
+    {"author": {"_account_id": 1002, "name": "Bob Reviewer", "email": "bob@example.org", "username": "bob"}, "change_message_id": "m8", "unresolved": true, "patch_set": 3, "id": "e1", "updated": "2026-09-05 10:00:00.000000000", "message": "Split this file.", "commit_id": "3333333333333333333333333333333333333333"},
+    {"author": {"_account_id": 1003, "name": "CI Bot", "username": "ci"}, "change_message_id": "m9", "unresolved": true, "patch_set": 3, "id": "f2", "line": 7, "in_reply_to": "gone", "updated": "2026-09-05 11:00:00.000000000", "message": "Replying to a deleted comment.", "commit_id": "3333333333333333333333333333333333333333"}
+  ]
+}
