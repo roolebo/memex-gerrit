@@ -2,8 +2,8 @@
 #
 # test/run: tests of memex-gerrit against a fake Gerrit.
 #
-# test/bin comes first in PATH: its curl answers from test/fixtures and
-# logs every request, so no test reaches a network. HOME is a scratch
+# test/bin comes first in PATH: its curl and ssh answer from test/fixtures
+# and log every request, so no test reaches a network. HOME is a scratch
 # directory, so the user's ~/.netrc stays unread.
 #
 
@@ -261,6 +261,44 @@ test_credentials_error() {
   check_has stderr "$ERR" "Cannot GET $ADDR/a/accounts/self"
 }
 
+# Make the working copy a repository with a REMOTE
+remote() {
+  git -C "$TEST_DIR/work" init -q
+  git -C "$TEST_DIR/work" remote add origin "$1"
+}
+
+# Without credentials the user is who the ssh:// remote logs in as
+test_me_ssh() {
+  remote ssh://alice@review.example.org:29418/fs/lustre-release
+  export FAKE_SSH_REPLY=ssh-query.json
+  route GET "$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check ssh "$(log '[.[].ssh | select(.)]')" "$(json '[["-T", "-o",
+    "BatchMode=yes", "ssh://alice@review.example.org:29418",
+    "gerrit", "query", "--format=JSON", "limit:1", "owner:self"]]')"
+  check owner "$(q .data.owner.me)" true
+  check reviewer "$(q '[.data.votes[].by.me]')" '[false,false,false]'
+}
+
+test_me_ssh_fails() {
+  remote ssh://alice@review.example.org:29418/fs/lustre-release
+  route GET "$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check owner "$(q .data.owner.me)" false
+}
+
+test_me_ssh_other_host() {
+  remote ssh://alice@review.example.com:29418/fs/lustre-release
+  export FAKE_SSH_REPLY=ssh-query.json
+  route GET "$CHANGE_PATH" change.json
+  call discussion change 68560
+  check status "$STATUS" 0
+  check ssh "$(log '[.[].ssh | select(.)]')" '[]'
+  check owner "$(q .data.owner.me)" false
+}
+
 run() {
   local failed=$FAILED
   local unexpected
@@ -275,7 +313,7 @@ run() {
   "$1" < /dev/null
   unexpected=$(jq -r 'select(.unexpected) | "\(.method) \(.url)"' "$FAKE_LOG")
   check "unexpected requests" "$unexpected" ""
-  unset GERRIT_USER GERRIT_PASSWORD
+  unset GERRIT_USER GERRIT_PASSWORD FAKE_SSH_REPLY
   if [ $FAILED -eq $failed ]; then
     echo "ok $1"
   else
@@ -291,7 +329,7 @@ command -v jq > /dev/null || die "jq is not installed"
 trap cleanup EXIT
 export FAKE_FIXTURES=$CURDIR/fixtures
 export PATH=$CURDIR/bin:$PATH
-unset GERRIT_USER GERRIT_PASSWORD
+unset GERRIT_USER GERRIT_PASSWORD FAKE_SSH_REPLY
 # The working copy is no repository unless a test makes it one
 export GIT_CEILING_DIRECTORIES=$DIR
 

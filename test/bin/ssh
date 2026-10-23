@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#
+# test/bin/ssh: a fake ssh for test/run. Logs its arguments to FAKE_LOG
+# and prints FAKE_SSH_REPLY, a file in FAKE_FIXTURES; without it, fails
+# as an unreachable host does.
+#
+
+printf '%s\0' "$@" | jq -Rsc '{ssh: split("\u0000")[:-1]}' >> "$FAKE_LOG"
+[ -n "$FAKE_SSH_REPLY" ] || exit 255
+cat "$FAKE_FIXTURES/$FAKE_SSH_REPLY"
