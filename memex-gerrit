@@ -65,6 +65,11 @@ get() {
   call GET "$1"
 }
 
+# The user's account: drafts carry no author
+me() {
+  get accounts/self
+}
+
 need_auth() {
   [ -n "$AUTH" ] || die "Drafts need GERRIT_USER and GERRIT_PASSWORD," \
     "or ~/.netrc for $HOST"
@@ -129,7 +134,7 @@ def anchor:
     else {on: "file", path: .path} end;
 def comment($draft): {
   id: .id,
-  author: (.author | person),
+  author: (.author // $me | person),
   revision: (.patch_set | tostring),
   text: .message,
   created: (.updated | time),
@@ -204,7 +209,7 @@ threads() {
   local json
   json=$(get "changes/$1/comments") || exit 1
   jq -c --arg addr "$ADDR" --argjson self "$SELF" --arg change "$1" \
-    "$JQ_DEFS"'
+    --argjson me null "$JQ_DEFS"'
       [to_entries[] | .key as $path | .value[] | . + {path: $path}]
       | (map({key: .id, value: .}) | from_entries) as $by_id
       | def root: if .in_reply_to and $by_id[.in_reply_to]
@@ -230,7 +235,7 @@ drafts() {
   need_auth
   json=$(get "changes/$1/drafts") || exit 1
   jq -c --arg addr "$ADDR" --argjson self "$SELF" --arg change "$1" \
-    "$JQ_DEFS"'to_entries[] | .key as $path | .value[]
+    --argjson me "$(me)" "$JQ_DEFS"'to_entries[] | .key as $path | .value[]
       | . + {path: $path} | draft_thread' <<< "$json"
 }
 
@@ -277,7 +282,7 @@ draft() {
   json=$(call PUT "changes/$1/revisions/$revision/drafts" \
     "$(jq -c 'del(.patch_set)' <<< "$body")") || exit 1
   jq -c --arg addr "$ADDR" --argjson self "$SELF" --arg change "$1" \
-    --argjson body "$body" "$JQ_DEFS"'
+    --argjson body "$body" --argjson me "$(me)" "$JQ_DEFS"'
     {path: $body.path, patch_set: $body.patch_set} + . | draft_thread' \
     <<< "$json"
 }
