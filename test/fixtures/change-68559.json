@@ -1,9 +1,9 @@
 {
-  "id": "fs%2Flustre-release~68559",
-  "project": "fs/lustre-release",
+  "id": "fs%2Fproject~68559",
+  "project": "fs/project",
   "branch": "master",
   "change_id": "Ib000000000000000000000000000000000068559",
-  "subject": "LU-930 doc: Change 68559",
+  "subject": "PRJ-930 doc: Change 68559",
   "status": "MERGED",
   "updated": "2026-09-05 08:00:00.000000000",
   "_number": 68559,
@@ -18,8 +18,8 @@
       "ref": "refs/changes/59/68559/1",
       "commit": {
         "parents": [{"commit": "9999999999999999999999999999999999999999", "subject": "Parent"}],
-        "subject": "LU-930 doc: Change 68559",
-        "message": "LU-930 doc: Change 68559\n\nChange-Id: Ib000000000000000000000000000000000068559\n"
+        "subject": "PRJ-930 doc: Change 68559",
+        "message": "PRJ-930 doc: Change 68559\n\nChange-Id: Ib000000000000000000000000000000000068559\n"
       }
     }
   }

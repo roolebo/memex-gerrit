@@ -140,9 +140,9 @@ test_change() {
   check links "$(q .links)" "$(json '[["change", "68560"],
     ["change-id", "Ie4ebe32c2f0290e055d88530174d2a557c09ad3a"]]')"
   check title "$(q .data.title)" \
-    '"LU-930 doc: Fix typos in OSD API documentation"'
+    '"PRJ-930 doc: Fix typos in OSD API documentation"'
   check url "$(q .data.url)" \
-    '"https://review.example.org/c/fs/lustre-release/+/68560"'
+    '"https://review.example.org/c/fs/project/+/68560"'
   check status "$(q .data.status)" '"open"'
   check owner "$(q .data.owner)" "$(json '{"name": "Alice Author",
     "email": "alice@example.org", "username": "alice", "me": false}')"
@@ -352,7 +352,7 @@ remote() {
 
 # Without credentials the user is who the ssh:// remote logs in as
 test_me_ssh() {
-  remote ssh://alice@review.example.org:29418/fs/lustre-release
+  remote ssh://alice@review.example.org:29418/fs/project
   export FAKE_SSH_REPLY=ssh-query.json
   route GET "$CHANGE_PATH" change.json
   call discussion change 68560
@@ -365,7 +365,7 @@ test_me_ssh() {
 }
 
 test_me_ssh_fails() {
-  remote ssh://alice@review.example.org:29418/fs/lustre-release
+  remote ssh://alice@review.example.org:29418/fs/project
   route GET "$CHANGE_PATH" change.json
   call discussion change 68560
   check status "$STATUS" 0
@@ -373,7 +373,7 @@ test_me_ssh_fails() {
 }
 
 test_me_ssh_other_host() {
-  remote ssh://alice@review.example.com:29418/fs/lustre-release
+  remote ssh://alice@review.example.com:29418/fs/project
   export FAKE_SSH_REPLY=ssh-query.json
   route GET "$CHANGE_PATH" change.json
   call discussion change 68560
