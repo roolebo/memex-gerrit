@@ -8,7 +8,7 @@
 # GERRIT_PASSWORD (the HTTP password), e.g. set by withkeys, or else from
 # ~/.netrc for ADDR's host; without them only reading works, and the user
 # is found through the working copy's ssh:// remote on that host. Never
-# prompts. Drafts and publishing are not implemented yet and exit 2.
+# prompts. Drafts and publishing need credentials.
 #
 
 set -e
@@ -30,26 +30,44 @@ Usage: $0 ADDR discussion capabilities
        $0 ADDR discussion change CHANGE
        $0 ADDR discussion series CHANGE
        $0 ADDR discussion threads CHANGE
+       $0 ADDR discussion drafts CHANGE
+       $0 ADDR discussion draft CHANGE < DRAFT
+       $0 ADDR discussion discard CHANGE ID
+       $0 ADDR discussion publish CHANGE < MESSAGE_AND_VOTES
 EOF
 }
 
 HOST_RE='^https?://([^/:]+)'
 
-# GET a REST path; prints the JSON with Gerrit's )]}' line stripped
-get() {
-  local url=$ADDR/$1
+# Calls a REST path with METHOD and an optional JSON BODY; prints the
+# reply with Gerrit's )]}' line stripped
+call() {
+  local url=$ADDR/$2
   local reply
-  [ -n "$AUTH" ] && url=$ADDR/a/$1
+  local args=(-fsS -X "$1")
+  [ -n "$AUTH" ] && url=$ADDR/a/$2
+  [ -n "$3" ] && args+=(-H 'Content-Type: application/json'
+    --data-binary "$3")
   # The password goes to curl on stdin, not on its command line
   if [ "$AUTH" == env ]; then
     reply=$(printf 'user = "%s:%s"\n' "$GERRIT_USER" "$GERRIT_PASSWORD" |
-      curl -fsS -K - "$url") || die "Cannot read $url"
+      curl "${args[@]}" -K - "$url") || die "Cannot $1 $url"
   elif [ "$AUTH" == netrc ]; then
-    reply=$(curl -fsS --netrc "$url") || die "Cannot read $url"
+    reply=$(curl "${args[@]}" --netrc "$url") || die "Cannot $1 $url"
   else
-    reply=$(curl -fsS "$url") || die "Cannot read $url"
+    reply=$(curl "${args[@]}" "$url") || die "Cannot $1 $url"
   fi
   tail -n +2 <<< "$reply"
+}
+
+# GET a REST path; prints the JSON
+get() {
+  call GET "$1"
+}
+
+need_auth() {
+  [ -n "$AUTH" ] || die "Drafts need GERRIT_USER and GERRIT_PASSWORD," \
+    "or ~/.netrc for $HOST"
 }
 
 # Prints ssh://[USER@]HOST[:PORT] of the working copy's first ssh://
@@ -98,6 +116,34 @@ def record($kind; $id; $basis; $links; $data): {
   id: $id, source: $addr, role: "discussion", kind: $kind,
   basis: $basis, links: $links, data: $data, notes: {}
 };
+def anchor:
+  (if .side == "PARENT" then "base" else "revision" end) as $side
+  | if .path == "/PATCHSET_LEVEL" then {on: "change"}
+    elif .path == "/COMMIT_MSG" then {on: "message"}
+    elif .range then {on: "lines", path: .path, side: $side,
+      start: .range.start_line, end: .range.end_line,
+      start_col: (.range.start_character + 1),
+      end_col: (.range.end_character + 1)}
+    elif .line then {on: "lines", path: .path, side: $side,
+      start: .line, end: .line}
+    else {on: "file", path: .path} end;
+def comment($draft): {
+  id: .id,
+  author: (.author | person),
+  revision: (.patch_set | tostring),
+  text: .message,
+  created: (.updated | time),
+  reply_to: (.in_reply_to // null),
+  draft: $draft
+};
+def draft_thread: record("thread"; .id;
+  "\(.patch_set):\(.id):\(.updated)"; [["change", $change]];
+  {
+    anchor: anchor,
+    revision: (.patch_set | tostring),
+    resolved: ((.unresolved // false) | not),
+    comments: [comment(true)]
+  });
 '
 
 CHANGE_OPTIONS='o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_ACCOUNTS'
@@ -159,17 +205,6 @@ threads() {
   json=$(get "changes/$1/comments") || exit 1
   jq -c --arg addr "$ADDR" --argjson self "$SELF" --arg change "$1" \
     "$JQ_DEFS"'
-      def anchor:
-        (if .side == "PARENT" then "base" else "revision" end) as $side
-        | if .path == "/PATCHSET_LEVEL" then {on: "change"}
-          elif .path == "/COMMIT_MSG" then {on: "message"}
-          elif .range then {on: "lines", path: .path, side: $side,
-            start: .range.start_line, end: .range.end_line,
-            start_col: (.range.start_character + 1),
-            end_col: (.range.end_character + 1)}
-          elif .line then {on: "lines", path: .path, side: $side,
-            start: .line, end: .line}
-          else {on: "file", path: .path} end;
       [to_entries[] | .key as $path | .value[] | . + {path: $path}]
       | (map({key: .id, value: .}) | from_entries) as $by_id
       | def root: if .in_reply_to and $by_id[.in_reply_to]
@@ -185,16 +220,89 @@ threads() {
             anchor: ($root | anchor),
             revision: ($root.patch_set | tostring),
             resolved: ((.[-1].unresolved // false) | not),
-            comments: [.[] | {
-              id: .id,
-              author: (.author | person),
-              revision: (.patch_set | tostring),
-              text: .message,
-              created: (.updated | time),
-              reply_to: (.in_reply_to // null),
-              draft: false
-            }]
+            comments: [.[] | comment(false)]
           })' <<< "$json"
+}
+
+# Prints the user's drafts on CHANGE, each as a thread of one comment
+drafts() {
+  local json
+  need_auth
+  json=$(get "changes/$1/drafts") || exit 1
+  jq -c --arg addr "$ADDR" --argjson self "$SELF" --arg change "$1" \
+    "$JQ_DEFS"'to_entries[] | .key as $path | .value[]
+      | . + {path: $path} | draft_thread' <<< "$json"
+}
+
+# Adds a draft on CHANGE from the JSON object on stdin: a reply to a
+# comment, or a new thread on an anchor of a revision
+draft() {
+  local input
+  local comments
+  local body
+  local revision
+  local json
+  need_auth
+  input=$(cat)
+  if [ "$(jq -r '.reply_to // empty' <<< "$input")" ]; then
+    comments=$(get "changes/$1/comments") || exit 1
+  else
+    comments='{}'
+  fi
+  # The draft's revision, then its CommentInput
+  # A change's comments can be longer than an argument may be
+  body=$(jq -c --slurpfile comments <(echo "$comments") '
+    $comments[0] as $comments
+    | (.reply_to // null) as $to
+    | (if $to then [$comments | to_entries[] | .key as $path
+        | .value[] | select(.id == $to) | . + {path: $path}][0]
+        // error("No comment \($to)") else null end) as $parent
+    | (if $parent then $parent | {path, line, range, side,
+        in_reply_to: .id, patch_set, unresolved}
+      else .anchor as $a
+        | if $a.on == "change" then {path: "/PATCHSET_LEVEL"}
+          elif $a.on == "message" then {path: "/COMMIT_MSG"}
+          elif $a.on == "file" then {path: $a.path}
+          elif $a.start_col then {path: $a.path, line: $a.end, range: {
+            start_line: $a.start, start_character: ($a.start_col - 1),
+            end_line: $a.end, end_character: ($a.end_col - 1)}}
+          else {path: $a.path, line: $a.end} end
+        + (if $a.side == "base" then {side: "PARENT"} else {} end)
+        + {patch_set: (.revision | tonumber), unresolved: true} end)
+    + {message: .text}
+    + (if has("resolved") then {unresolved: (.resolved | not)}
+      else {} end)
+    | with_entries(select(.value != null))' <<< "$input") || exit 1
+  revision=$(jq -r '.patch_set' <<< "$body")
+  json=$(call PUT "changes/$1/revisions/$revision/drafts" \
+    "$(jq -c 'del(.patch_set)' <<< "$body")") || exit 1
+  jq -c --arg addr "$ADDR" --argjson self "$SELF" --arg change "$1" \
+    --argjson body "$body" "$JQ_DEFS"'
+    {path: $body.path, patch_set: $body.patch_set} + . | draft_thread' \
+    <<< "$json"
+}
+
+# Deletes the draft ID on CHANGE
+discard() {
+  local json
+  local revision
+  need_auth
+  json=$(get "changes/$1/drafts") || exit 1
+  revision=$(jq -r --arg id "$2" \
+    '[.[][] | select(.id == $id)][0].patch_set // empty' <<< "$json")
+  [ -n "$revision" ] || die "No draft $2 on $1"
+  call DELETE "changes/$1/revisions/$revision/drafts/$2" > /dev/null
+}
+
+# Publishes the drafts on CHANGE, with a message and votes from the JSON
+# object on stdin
+publish() {
+  local body
+  need_auth
+  body=$(jq -c '{drafts: "PUBLISH_ALL_REVISIONS"}
+    + (if .message then {message} else {} end)
+    + (if .votes then {labels: .votes} else {} end)') || exit 1
+  call POST "changes/$1/revisions/current/review" "$body" > /dev/null
 }
 
 if [ "$1" == "-h" -o "$1" == "--help" ]; then
@@ -221,15 +329,20 @@ SELF=$(self)
 
 case "$2" in
   capabilities)
-    echo '{"exact": true, "resolved": true, "drafts": false,' \
+    echo '{"exact": true, "resolved": true, "drafts": true,' \
       '"series": true, "votes": true}'
     ;;
   locate | change | series | threads)
     [ $# -eq 3 ] || die "$(usage)"
     "$2" "$3"
     ;;
-  drafts | draft | discard | publish)
-    unsupported "$2"
+  drafts | draft | publish)
+    [ $# -eq 3 ] || die "$(usage)"
+    "$2" "$3"
+    ;;
+  discard)
+    [ $# -eq 4 ] || die "$(usage)"
+    discard "$3" "$4"
     ;;
   *)
     die "$(usage)"
