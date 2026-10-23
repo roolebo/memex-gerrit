@@ -2,7 +2,6 @@
 #
 # memex-gerrit: memex adapter for the discussion role in Gerrit.
 #
-#   memex-gerrit detect REPO
 #   memex-gerrit ADDR ROLE COMMAND [ARGUMENTS]
 #
 # README.md specifies the mapping. Credentials come from GERRIT_USER and
@@ -26,33 +25,12 @@ unsupported() {
 
 usage() {
   cat << EOF
-Usage: $0 detect REPO
-       $0 ADDR discussion capabilities
+Usage: $0 ADDR discussion capabilities
        $0 ADDR discussion locate COMMIT
        $0 ADDR discussion change CHANGE
        $0 ADDR discussion series CHANGE
        $0 ADDR discussion threads CHANGE
 EOF
-}
-
-# Prints the https base URL of the Gerrit REPO reviews in, if any
-detect() {
-  local host
-  local url
-  [ -d "$1" ] || die "No such directory: $1"
-  if [ -f "$1/.gitreview" ]; then
-    host=$(sed -n 's/^host=//p' "$1/.gitreview" | head -1)
-  fi
-  if [ -z "$host" ]; then
-    for url in $(git -C "$1" remote -v | cut -f2 | cut -d' ' -f1); do
-      if [[ "$url" =~ ^ssh://([^@/]*@)?([^:/]+):29418/ ]]; then
-        host=${BASH_REMATCH[2]}
-        break
-      fi
-    done
-  fi
-  [ -n "$host" ] || return 0
-  echo "discussion https://$host"
 }
 
 HOST_RE='^https?://([^/:]+)'
@@ -221,11 +199,6 @@ threads() {
 
 if [ "$1" == "-h" -o "$1" == "--help" ]; then
   usage
-  exit 0
-fi
-if [ "$1" == detect ]; then
-  [ $# -eq 2 ] || die "$(usage)"
-  detect "$2"
   exit 0
 fi
 [ $# -ge 3 ] || die "$(usage)"

@@ -14,8 +14,6 @@ and PERSON `me` is the account the working copy's `ssh://` remote on
 ADDR's host logs in as.
 It strips `)]}'` from every reply.
 
-`detect REPO` prints `discussion` and ADDR, `https://` and the host of
-REPO's `.gitreview`, or else of its first remote on port 29418.
 
 ## Commands
 
