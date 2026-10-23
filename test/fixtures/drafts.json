@@ -1,0 +1,8 @@
+{
+  "/PATCHSET_LEVEL": [
+    {"id": "dr2", "patch_set": 2, "updated": "2026-10-20 09:00:00.000000000", "message": "Thanks", "unresolved": false, "commit_id": "2222222222222222222222222222222222222222"}
+  ],
+  "src/a.c": [
+    {"id": "dr1", "patch_set": 3, "line": 5, "updated": "2026-10-20 10:00:00.000000000", "message": "Why?", "unresolved": true, "commit_id": "3333333333333333333333333333333333333333"}
+  ]
+}

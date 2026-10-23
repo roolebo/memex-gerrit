@@ -72,6 +72,11 @@ requests() {
   jq -r 'select(.method) | "\(.method) \(.url)"' "$FAKE_LOG"
 }
 
+# The body of the first logged request with METHOD
+body() {
+  log "map(select(.method == \"$1\"))[0].body | fromjson"
+}
+
 # What curl read from stdin with -K - for the first request
 config() {
   jq -sr '.[0].config' "$FAKE_LOG"
@@ -376,6 +381,180 @@ test_me_ssh_other_host() {
   check status "$STATUS" 0
   check ssh "$(log '[.[].ssh | select(.)]')" '[]'
   check owner "$(q .data.owner.me)" false
+}
+
+# Drafts carry no author: it is the user
+test_drafts() {
+  login
+  route GET a/changes/68560/drafts drafts.json
+  call discussion drafts 68560
+  check status "$STATUS" 0
+  check ids "$(q -s '[.[].id] | sort')" '["dr1","dr2"]'
+  check author "$(q -s '[.[].data.comments[0].author] | unique')" \
+    "$(json '[{"name": "Alice Author", "email": "alice@example.org",
+      "username": "alice", "me": true}]')"
+  check draft "$(q -s '[.[].data.comments[0].draft] | unique')" '[true]'
+  check dr1 "$(q 'select(.id == "dr1") | .data
+    | [.anchor, .revision, .resolved]')" "$(json '[{"on": "lines",
+      "path": "src/a.c", "side": "revision", "start": 5, "end": 5},
+    "3", false]')"
+  check dr2 "$(q 'select(.id == "dr2") | .data | [.anchor, .resolved]')" \
+    '[{"on":"change"},true]'
+  check basis "$(q 'select(.id == "dr1") | .basis')" \
+    '"3:dr1:2026-10-20 10:00:00.000000000"'
+}
+
+# Writes refuse to run anonymously, before any request
+test_writes_need_credentials() {
+  call discussion drafts 68560
+  check drafts "$STATUS" 1
+  check_has stderr "$ERR" "Drafts need GERRIT_USER and GERRIT_PASSWORD"
+  call discussion draft 68560 <<< '{"anchor": {"on": "change"},
+    "revision": "3", "text": "x"}'
+  check draft "$STATUS" 1
+  call discussion discard 68560 dr1
+  check discard "$STATUS" 1
+  call discussion publish 68560 <<< '{"message": "x"}'
+  check publish "$STATUS" 1
+  check requests "$(requests)" ""
+}
+
+# A reply takes its anchor and patch set from the comment it replies to
+test_draft_reply() {
+  login
+  route GET a/changes/68560/comments comments.json
+  route PUT a/changes/68560/revisions/2/drafts draft-reply.json
+  call discussion draft 68560 <<< '{"reply_to": "d3",
+    "text": "Fixed in the next patch set", "resolved": true}'
+  check status "$STATUS" 0
+  check put "$(requests | grep PUT)" \
+    "PUT $ADDR/a/changes/68560/revisions/2/drafts"
+  check body "$(body PUT)" "$(json '{"path": "src/a.c", "line": 12,
+    "range": {"start_line": 10, "start_character": 4, "end_line": 12,
+      "end_character": 8},
+    "side": "PARENT", "in_reply_to": "d3", "unresolved": false,
+    "message": "Fixed in the next patch set"}')"
+  check json "$(log '[.[] | select(.method == "PUT") | .args
+    | index("Content-Type: application/json") != null]')" '[true]'
+  check id "$(q .id)" '"dr3"'
+  check comment "$(q '.data.comments[0] | [.author.me, .draft, .reply_to,
+    .revision]')" '[true,true,"d3","2"]'
+  check resolved "$(q .data.resolved)" true
+}
+
+# Without resolved, a reply keeps the thread as it was
+test_draft_reply_unchanged() {
+  login
+  route GET a/changes/68560/comments comments.json
+  route PUT a/changes/68560/revisions/1/drafts draft-reply.json
+  call discussion draft 68560 <<< '{"reply_to": "a2", "text": "Thanks"}'
+  check status "$STATUS" 0
+  check body "$(body PUT)" "$(json '{"path": "/COMMIT_MSG", "line": 9,
+    "in_reply_to": "a2", "unresolved": false, "message": "Thanks"}')"
+}
+
+test_draft_reply_unknown() {
+  login
+  route GET a/changes/68560/comments comments.json
+  call discussion draft 68560 <<< '{"reply_to": "zz", "text": "x"}'
+  check status "$STATUS" 1
+  check_has stderr "$ERR" "No comment zz"
+  check put "$(requests | grep -c PUT)" 0
+}
+
+# Columns become a range: Gerrit counts characters from 0
+test_draft_thread() {
+  login
+  route PUT a/changes/68560/revisions/3/drafts draft-new.json
+  call discussion draft 68560 <<< '{"anchor": {"on": "lines",
+    "path": "src/a.c", "side": "base", "start": 20, "end": 22,
+    "start_col": 1, "end_col": 6}, "revision": "3",
+    "text": "Why not a mutex?"}'
+  check status "$STATUS" 0
+  check put "$(requests | grep PUT)" \
+    "PUT $ADDR/a/changes/68560/revisions/3/drafts"
+  check comments "$(requests | grep -c comments)" 0
+  check body "$(body PUT)" "$(json '{"path": "src/a.c", "line": 22,
+    "range": {"start_line": 20, "start_character": 0, "end_line": 22,
+      "end_character": 5},
+    "side": "PARENT", "unresolved": true, "message": "Why not a mutex?"}')"
+  check anchor "$(q .data.anchor)" "$(json '{"on": "lines",
+    "path": "src/a.c", "side": "base", "start": 20, "end": 22,
+    "start_col": 1, "end_col": 6}')"
+  check revision "$(q .data.revision)" '"3"'
+}
+
+# Draft TEXT on ANCHOR of patch set 3; prints the body of the PUT
+draft_on() {
+  : > "$FAKE_LOG"
+  call discussion draft 68560 <<< "{\"anchor\": $1, \"revision\": \"3\",
+    \"text\": \"t\", \"resolved\": true}"
+  body PUT
+}
+
+test_draft_anchors() {
+  login
+  route PUT a/changes/68560/revisions/3/drafts draft-new.json
+  check change "$(draft_on '{"on": "change"}')" \
+    '{"path":"/PATCHSET_LEVEL","unresolved":false,"message":"t"}'
+  check message "$(draft_on '{"on": "message"}')" \
+    '{"path":"/COMMIT_MSG","unresolved":false,"message":"t"}'
+  check file "$(draft_on '{"on": "file", "path": "src/a.c"}')" \
+    '{"path":"src/a.c","unresolved":false,"message":"t"}'
+  check lines "$(draft_on '{"on": "lines", "path": "src/a.c",
+    "side": "revision", "start": 4, "end": 4}')" \
+    '{"path":"src/a.c","line":4,"unresolved":false,"message":"t"}'
+}
+
+# A draft is deleted on the patch set it was written on
+test_discard() {
+  login
+  route GET a/changes/68560/drafts drafts.json
+  route DELETE a/changes/68560/revisions/3/drafts/dr1 - 204
+  call discussion discard 68560 dr1
+  check status "$STATUS" 0
+  check out "$OUT" ""
+  check delete "$(requests | grep DELETE)" \
+    "DELETE $ADDR/a/changes/68560/revisions/3/drafts/dr1"
+}
+
+test_discard_unknown() {
+  login
+  route GET a/changes/68560/drafts drafts-none.json
+  call discussion discard 68560 dr1
+  check status "$STATUS" 1
+  check_has stderr "$ERR" "No draft dr1 on 68560"
+  check delete "$(requests | grep -c DELETE)" 0
+}
+
+test_publish() {
+  login
+  route POST a/changes/68560/revisions/current/review review.json
+  call discussion publish 68560 <<< '{"message": "Thanks",
+    "votes": {"Code-Review": 1, "Verified": -1}}'
+  check status "$STATUS" 0
+  check out "$OUT" ""
+  check post "$(requests | grep POST)" \
+    "POST $ADDR/a/changes/68560/revisions/current/review"
+  check body "$(body POST)" "$(json '{"drafts": "PUBLISH_ALL_REVISIONS",
+    "message": "Thanks", "labels": {"Code-Review": 1, "Verified": -1}}')"
+}
+
+test_publish_drafts_only() {
+  login
+  route POST a/changes/68560/revisions/current/review review.json
+  call discussion publish 68560 <<< '{"message": null, "votes": {}}'
+  check status "$STATUS" 0
+  check body "$(body POST)" '{"drafts":"PUBLISH_ALL_REVISIONS","labels":{}}'
+}
+
+test_publish_error() {
+  login
+  route POST a/changes/68560/revisions/current/review - 409
+  call discussion publish 68560 <<< '{"message": "x"}'
+  check status "$STATUS" 1
+  check_has stderr "$ERR" \
+    "Cannot POST $ADDR/a/changes/68560/revisions/current/review"
 }
 
 run() {

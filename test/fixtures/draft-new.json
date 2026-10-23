@@ -1,0 +1,1 @@
+{"id": "dr4", "path": "src/a.c", "line": 22, "range": {"start_line": 20, "start_character": 0, "end_line": 22, "end_character": 5}, "side": "PARENT", "updated": "2026-10-23 11:00:00.000000000", "message": "Why not a mutex?", "unresolved": true, "commit_id": "3333333333333333333333333333333333333333"}

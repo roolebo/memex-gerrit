@@ -1,0 +1,1 @@
+{"id": "dr3", "path": "src/a.c", "line": 12, "range": {"start_line": 10, "start_character": 4, "end_line": 12, "end_character": 8}, "side": "PARENT", "in_reply_to": "d3", "updated": "2026-10-23 10:00:00.000000000", "message": "Fixed in the next patch set", "unresolved": false, "patch_set": 2, "commit_id": "2222222222222222222222222222222222222222"}
