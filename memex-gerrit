@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+#
+# memex-gerrit: memex adapter for the discussion role in Gerrit.
+#
+#   memex-gerrit detect REPO
+#   memex-gerrit ADDR COMMAND [ARGUMENTS]
+#
+# README.md specifies the mapping. Credentials come from GERRIT_USER and
+# GERRIT_PASSWORD (the HTTP password), e.g. set by withkeys, or else from
+# ~/.netrc for ADDR's host; without them only reading works. Never
+# prompts. Drafts and publishing are not implemented yet and exit 2.
+#
+
+set -e
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+unsupported() {
+  echo "Not supported yet: $1" >&2
+  exit 2
+}
+
+usage() {
+  cat << EOF
+Usage: $0 detect REPO
+       $0 ADDR capabilities
+       $0 ADDR locate COMMIT
+       $0 ADDR change CHANGE
+       $0 ADDR series CHANGE
+       $0 ADDR threads CHANGE
+EOF
+}
+
+# Prints the https base URL of the Gerrit REPO reviews in, if any
+detect() {
+  local host
+  local url
+  [ -d "$1" ] || die "No such directory: $1"
+  if [ -f "$1/.gitreview" ]; then
+    host=$(sed -n 's/^host=//p' "$1/.gitreview" | head -1)
+  fi
+  if [ -z "$host" ]; then
+    for url in $(git -C "$1" remote -v | cut -f2 | cut -d' ' -f1); do
+      if [[ "$url" =~ ^ssh://([^@/]*@)?([^:/]+):29418/ ]]; then
+        host=${BASH_REMATCH[2]}
+        break
+      fi
+    done
+  fi
+  [ -n "$host" ] || exit 1
+  echo "discussion https://$host"
+}
+
+HOST_RE='^https?://([^/:]+)'
+
+# GET a REST path; prints the JSON with Gerrit's )]}' line stripped
+get() {
+  local url=$ADDR/$1
+  local reply
+  [ -n "$AUTH" ] && url=$ADDR/a/$1
+  # The password goes to curl on stdin, not on its command line
+  if [ "$AUTH" == env ]; then
+    reply=$(printf 'user = "%s:%s"\n' "$GERRIT_USER" "$GERRIT_PASSWORD" |
+      curl -fsS -K - "$url") || die "Cannot read $url"
+  elif [ "$AUTH" == netrc ]; then
+    reply=$(curl -fsS --netrc "$url") || die "Cannot read $url"
+  else
+    reply=$(curl -fsS "$url") || die "Cannot read $url"
+  fi
+  tail -n +2 <<< "$reply"
+}
+
+# The account id of the user, or null without credentials
+self() {
+  local account
+  if [ -n "$AUTH" ]; then
+    account=$(get accounts/self) || exit 1
+    jq '._account_id' <<< "$account"
+  else
+    echo null
+  fi
+}
+
+# jq definitions shared by the commands
+JQ_DEFS='
+def time: sub(" "; "T") | sub("\\..*"; "") + "Z";
+def person: {
+  name: (.name // .username // ""),
+  email: (.email // null),
+  username: (.username // null),
+  me: (._account_id == $self)
+};
+def record($kind; $id; $basis; $links; $data): {
+  id: $id, source: $addr, role: "discussion", kind: $kind,
+  basis: $basis, links: $links, data: $data, notes: {}
+};
+'
+
+CHANGE_OPTIONS='o=ALL_REVISIONS&o=ALL_COMMITS&o=DETAILED_ACCOUNTS'
+CHANGE_OPTIONS+='&o=DETAILED_LABELS'
+
+change() {
+  local json
+  json=$(get "changes/$1?$CHANGE_OPTIONS") || exit 1
+  jq -c --arg addr "$ADDR" --argjson self "$SELF" "$JQ_DEFS"'
+      .current_revision as $cur
+      | record("change"; (._number | tostring);
+          ($cur + " " + .updated);
+          [["change", (._number | tostring)], ["change-id", .change_id]];
+          {
+            title: .subject,
+            url: ($addr + "/c/" + .project + "/+/" + (._number | tostring)),
+            status: ({NEW: "open", MERGED: "merged",
+                      ABANDONED: "abandoned"}[.status] // "open"),
+            owner: (.owner | person),
+            revisions: ([.revisions | to_entries[] | {
+              id: (.value._number | tostring),
+              commit: .key,
+              parents: [.value.commit.parents[]?.commit],
+              fetch: .value.ref,
+              uploader: (.value.uploader | person),
+              created: (.value.created | time)
+            }] | sort_by(.id | tonumber)),
+            current: (.revisions[$cur]._number | tostring),
+            votes: [.labels // {} | to_entries[] | .key as $label
+              | .value.all[]? | select((.value // 0) != 0)
+              | {label: $label, value: .value, by: person}],
+            message: .revisions[$cur].commit.message
+          })' <<< "$json"
+}
+
+locate() {
+  local number
+  local json
+  json=$(get "changes/?q=commit:$1") || exit 1
+  number=$(jq '.[0]._number // empty' <<< "$json")
+  [ -n "$number" ] || die "No change has commit $1"
+  change "$number"
+}
+
+series() {
+  local numbers
+  local number
+  local json
+  json=$(get "changes/$1/revisions/current/related") || exit 1
+  numbers=$(jq -r '[.changes[]._change_number] | reverse | .[]' <<< "$json")
+  [ -n "$numbers" ] || numbers=$1
+  for number in $numbers; do
+    change "$number"
+  done
+}
+
+threads() {
+  local json
+  json=$(get "changes/$1/comments") || exit 1
+  jq -c --arg addr "$ADDR" --argjson self "$SELF" --arg change "$1" \
+    "$JQ_DEFS"'
+      def anchor:
+        (if .side == "PARENT" then "base" else "revision" end) as $side
+        | if .path == "/PATCHSET_LEVEL" then {on: "change"}
+          elif .path == "/COMMIT_MSG" then {on: "message"}
+          elif .range then {on: "lines", path: .path, side: $side,
+            start: .range.start_line, end: .range.end_line,
+            start_col: (.range.start_character + 1),
+            end_col: (.range.end_character + 1)}
+          elif .line then {on: "lines", path: .path, side: $side,
+            start: .line, end: .line}
+          else {on: "file", path: .path} end;
+      [to_entries[] | .key as $path | .value[] | . + {path: $path}]
+      | (map({key: .id, value: .}) | from_entries) as $by_id
+      | def root: if .in_reply_to and $by_id[.in_reply_to]
+          then $by_id[.in_reply_to] | root else . end;
+      group_by(root.id)[]
+      | sort_by(.updated)
+      | (map(select(.in_reply_to == null or
+          ($by_id[.in_reply_to] | not)))[0] // .[0]) as $root
+      | ((.[-1].patch_set | tostring) + ":" + .[-1].id) as $basis
+      | record("thread"; $root.id; $basis;
+          [["change", $change]];
+          {
+            anchor: ($root | anchor),
+            revision: ($root.patch_set | tostring),
+            resolved: ((.[-1].unresolved // false) | not),
+            comments: [.[] | {
+              id: .id,
+              author: (.author | person),
+              revision: (.patch_set | tostring),
+              text: .message,
+              created: (.updated | time),
+              reply_to: (.in_reply_to // null),
+              draft: false
+            }]
+          })' <<< "$json"
+}
+
+if [ "$1" == "-h" -o "$1" == "--help" ]; then
+  usage
+  exit 0
+fi
+if [ "$1" == detect ]; then
+  [ $# -eq 2 ] || die "$(usage)"
+  detect "$2"
+  exit 0
+fi
+[ $# -ge 2 ] || die "$(usage)"
+
+ADDR=${1%/}
+[[ "$ADDR" =~ $HOST_RE ]] || die "Not an http(s) URL: $1"
+if [ -n "$GERRIT_USER" -a -n "$GERRIT_PASSWORD" ]; then
+  AUTH=env
+elif grep -qs "machine ${BASH_REMATCH[1]}\b" ~/.netrc; then
+  AUTH=netrc
+fi
+SELF=$(self)
+
+case "$2" in
+  capabilities)
+    echo '{"exact": true, "resolved": true, "drafts": false,' \
+      '"series": true, "votes": true}'
+    ;;
+  locate | change | series | threads)
+    [ $# -eq 3 ] || die "$(usage)"
+    "$2" "$3"
+    ;;
+  drafts | draft | discard | publish)
+    unsupported "$2"
+    ;;
+  *)
+    die "$(usage)"
+    ;;
+esac
