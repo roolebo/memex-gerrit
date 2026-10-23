@@ -3,7 +3,7 @@
 # memex-gerrit: memex adapter for the discussion role in Gerrit.
 #
 #   memex-gerrit detect REPO
-#   memex-gerrit ADDR COMMAND [ARGUMENTS]
+#   memex-gerrit ADDR ROLE COMMAND [ARGUMENTS]
 #
 # README.md specifies the mapping. Credentials come from GERRIT_USER and
 # GERRIT_PASSWORD (the HTTP password), e.g. set by withkeys, or else from
@@ -27,11 +27,11 @@ unsupported() {
 usage() {
   cat << EOF
 Usage: $0 detect REPO
-       $0 ADDR capabilities
-       $0 ADDR locate COMMIT
-       $0 ADDR change CHANGE
-       $0 ADDR series CHANGE
-       $0 ADDR threads CHANGE
+       $0 ADDR discussion capabilities
+       $0 ADDR discussion locate COMMIT
+       $0 ADDR discussion change CHANGE
+       $0 ADDR discussion series CHANGE
+       $0 ADDR discussion threads CHANGE
 EOF
 }
 
@@ -228,7 +228,13 @@ if [ "$1" == detect ]; then
   detect "$2"
   exit 0
 fi
-[ $# -ge 2 ] || die "$(usage)"
+[ $# -ge 3 ] || die "$(usage)"
+if [ "$2" != discussion ]; then
+  echo "Not a $2 adapter" >&2
+  exit 2
+fi
+# Drop ROLE: the commands below take ADDR COMMAND [ARGUMENTS]
+set -- "$1" "${@:3}"
 
 ADDR=${1%/}
 [[ "$ADDR" =~ $HOST_RE ]] || die "Not an http(s) URL: $1"
