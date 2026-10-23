@@ -74,4 +74,4 @@ The ANCHOR comes from the comment's `path`, `line`, `range` and `side`:
 and git, and no network.
 
 [memex]: https://github.com/roolebo/memex
-[discussion.md]: https://github.com/roolebo/memex/blob/main/discussion.md
+[discussion.md]: https://github.com/roolebo/memex/blob/main/skills/memex/discussion.md
